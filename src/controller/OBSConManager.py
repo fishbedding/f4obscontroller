@@ -8,8 +8,23 @@ import json
 
 from dataclasses import dataclass, field
 from inspect import signature
+from websockets import exceptions
 
-from src.IdentificationParameters import IdentificationParameters
+from src.helper.Exceptions import AuthFailError, MessageTimeout, NotIdentifiedError
+from src.helper.IdentificationParameters import IdentificationParameters
+
+RPC_VERSION = 1
+
+# OBS-WEBSOCKET OP CODES
+OP_CODE_HELLO = 0
+OP_CODE_IDENTIFY = 1
+OP_CODE_IDENTIFIED = 2
+OP_CODE_REIDENTIFY = 3
+OP_CODE_EVENT = 5
+OP_CODE_REQUEST = 6
+OP_CODE_REQUEST_RESPONSE = 7
+OP_CODE_REQUEST_BATCH = 8
+OP_CODE_REQUEST_BATCH_RESPONSE = 9
 
 
 @dataclass
@@ -46,12 +61,6 @@ class _ResponseWaiter:
     response_data: dict = None
 
 
-class NotIdentifiedError(Exception):
-    pass
-
-class MessageTimeout(Exception):
-    pass
-
 async def _wait_for_cond(cond, func):
     async with cond:
         await cond.wait_for(func)
@@ -83,11 +92,10 @@ class OBSConManager:
         self._cond = asyncio.Condition()
         self._answers = {}
 
-        self._loop = asyncio.get_event_loop()
-
     async def async_connect_and_wait_id(self):
         await self._async_connect()
-        await self._wait_until_identified()
+        identified = await self._wait_until_identified()
+        return identified
 
     async def send_request(self, request: Request, timeout: int = 15):
         ret_val = await self._call(request, timeout)
@@ -115,7 +123,11 @@ class OBSConManager:
         try:
             await asyncio.wait_for(_wait_for_cond(self._cond, self._is_identified), timeout=timeout)
             print(f"Identification status: {self._identified}")
+            return True
         except asyncio.TimeoutError:
+            exception_check = self._recv_task.exception()
+            if isinstance(exception_check, Exception):
+                raise exception_check
             return False
 
     async def async_disconnect(self):
@@ -129,6 +141,7 @@ class OBSConManager:
         self._identified = False
         self._recv_task = None
         self._hello_message = None
+        print("WebSocket session closed")
         return True
 
     def _is_identified(self):
@@ -139,7 +152,7 @@ class OBSConManager:
             raise NotIdentifiedError("Calls to requests cannot be made without being identified with obs-websocket")
         request_id = str(uuid.uuid4())
         request_payload = {
-            "op": 6,
+            "op": OP_CODE_REQUEST,
             "d": {
                 "requestType": request.requestType,
                 "requestId": request_id
@@ -161,13 +174,16 @@ class OBSConManager:
 
         return _build_request_response(waiter.response_data)
 
-    async def _send_identify(self, password: str, identification_parameters: IdentificationParameters):
+    async def _send_identify(self, password: str = None, identification_parameters: IdentificationParameters = None):
         if not self._hello_message:
             return
 
-        identify_message = {"op": 1, "d": {}}
-        identify_message["d"]["rpcVersion"] = 1
+        identify_message = {"op": OP_CODE_IDENTIFY, "d": {}}
+        identify_message["d"]["rpcVersion"] = RPC_VERSION
         if "authentication" in self._hello_message:
+            if not self._password:
+                raise AuthFailError("Authentication is required but no password was provided. "
+                                    "Perhaps you forgot to set server.password?")
             secret = base64.b64encode(hashlib.sha256((self._password + self._hello_message["authentication"]["salt"])
                                                      .encode("utf-8")).digest())
             authentication_string = base64.b64encode(
@@ -195,7 +211,7 @@ class OBSConManager:
 
                 op_code = incoming_payload["op"]
                 data_payload = incoming_payload["d"]
-                if op_code == 7 or op_code == 9:
+                if op_code == OP_CODE_REQUEST_RESPONSE or op_code == OP_CODE_REQUEST_BATCH_RESPONSE:
                     payload_request_id = data_payload["requestId"]
                     if payload_request_id.startswith("emit_"):
                         continue
@@ -205,9 +221,9 @@ class OBSConManager:
                         waiter.event.set()
                     except KeyError:
                         print(f"Discarding request response {payload_request_id} because there is no waiter for it.")
-                elif op_code == 5:
+                elif op_code == OP_CODE_EVENT:
                     for callback, trigger in self._event_callbacks:
-                        if trigger == None:
+                        if trigger is None:
                             params = len(signature(callback).parameters)
                             if params == 1:
                                 asyncio.create_task(callback(data_payload))
@@ -218,10 +234,10 @@ class OBSConManager:
                                                              data_payload.get("eventData")))
                         elif trigger == data_payload["eventType"]:
                             asyncio.create_task(callback(data_payload.get("eventData")))
-                elif op_code == 0:
+                elif op_code == OP_CODE_HELLO:
                     self._hello_message = data_payload
-                    await self._send_identify(self._password, self._identification_parameters)
-                elif op_code == 2:
+                    await self._send_identify()
+                elif op_code == OP_CODE_IDENTIFIED:
                     self._identified = True
                     async with self._cond:
                         self._cond.notify_all()
@@ -231,19 +247,10 @@ class OBSConManager:
                     websockets.exceptions.ConnectionClosedOK):
                 print(
                     f"The WebSocket connection was closed. Code {self._ws.close_code} | Reason: {self._ws.close_reason}")
+                self._identified = False
+                if self._ws.close_code == 4009:
+                    raise AuthFailError("Unable to authenticate with the provided password")
                 break
             except json.JSONDecodeError:
                 continue
         self._identified = False
-
-# authentication with password protected obs websocket
-# def authorize():
-#     auth = getReturnFromAsync("GetAuthRequired")
-#     #
-#     # password = ""
-#     # challenge = auth.get("challenge")
-#     # salt = auth.get("salt")
-#     #
-#     # secretString = password + salt
-#
-#     print(str(auth))

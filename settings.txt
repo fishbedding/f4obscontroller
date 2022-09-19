@@ -1,2 +1,7 @@
-[DEFAULT]
-server.port=18669
+[CONNECTION]
+server.port=4455
+; server.password=12345
+
+[SCENE]
+scene.name=BMS
+audio.capture.feed=Audio Input Capture

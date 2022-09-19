@@ -1,31 +1,36 @@
 import asyncio
 import time
 
-from src.OBSConManager import OBSConManager, Request
-from src.IdentificationParameters import IdentificationParameters
+from src.controller.OBSConManager import OBSConManager, Request
+from src.helper.Exceptions import NotIdentifiedError, AudioCaptureException
+from src.helper.IdentificationParameters import IdentificationParameters
 
 
 class OBSRequest:
     def __init__(self,
+                 scene_name: str,
+                 audio_capture_feed: str,
                  port: str = "4444",
                  password: str = '',
-                 identification_parameters: IdentificationParameters = IdentificationParameters()):
+                 identification_parameters: IdentificationParameters = IdentificationParameters(),
+                 ):
+        self._scene_name = scene_name
+        self._audio_capture_feed = audio_capture_feed
+
         self._conn_manager = OBSConManager(port, password, identification_parameters)
 
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
 
     def _async_run(self, func):
-        task =  self._loop.create_task(func)
-        retval = self._loop.run_until_complete(task)
-
-        return retval
+        task = self._loop.create_task(func)
+        return self._loop.run_until_complete(task)
 
     # connecting to obs-websocket
     def connect(self):
         while True:
             try:
-                self._async_run(self._conn_manager.async_connect_and_wait_id())
+                retval = self._async_run(self._conn_manager.async_connect_and_wait_id())
                 print("Connected to OBS")
                 break
             except ConnectionRefusedError as e:
@@ -51,9 +56,9 @@ class OBSRequest:
 
         print(f"Current programmed scene: {currentScene}")
 
-        if currentScene.get("currentProgramSceneName") != "BMS":
-            print("Swapping to scene \"BMS\"")
-            self._send_request("SetCurrentProgramScene", {"sceneName": "BMS"})
+        if currentScene.get("currentProgramSceneName") != self._scene_name:
+            print(f"Swapping to scene \"{self._scene_name}\"")
+            self._send_request("SetCurrentProgramScene", {"sceneName": self._scene_name})
 
         recordingStatus = self._send_request("GetRecordStatus")
 
@@ -65,13 +70,16 @@ class OBSRequest:
 
     # stop recording
     def stop_recording(self):
-        currentScene = self._send_request("GetCurrentProgramScene")
+        try:
+            currentScene = self._send_request("GetCurrentProgramScene")
+        except NotIdentifiedError:
+            return
 
         print(f"Current programmed scene: {currentScene}")
 
-        if currentScene.get("currentProgramSceneName") != "BMS":
+        if currentScene.get("currentProgramSceneName") != self._scene_name:
             print("Swapping to scene \"BMS\"")
-            self._send_request("SetCurrentProgramScene", {"sceneName": "BMS"})
+            self._send_request("SetCurrentProgramScene", {"sceneName": self._scene_name})
 
         recordingStatus = self._send_request("GetRecordStatus")
 
@@ -84,14 +92,18 @@ class OBSRequest:
 
     # unmute & mute
     def unmute(self):
-        status = self._send_request("GetInputMute", {"inputName": "Audio Input Capture"})
+        status = self._send_request("GetInputMute", {"inputName": self._audio_capture_feed})
+        if not status:
+            raise AudioCaptureException("Unable to start audio capture, check if input source is set correctly")
         if status.get("inputMuted"):
-            self._send_request("SetInputMute", {"inputName": "Audio Input Capture", "inputMuted": False})
+            self._send_request("SetInputMute", {"inputName": self._audio_capture_feed, "inputMuted": False})
 
     def mute(self):
-        status = self._send_request("GetInputMute", {"inputName": "Audio Input Capture"})
+        status = self._send_request("GetInputMute", {"inputName": self._audio_capture_feed})
+        if not status:
+            raise AudioCaptureException("Unable to start audio capture, check if input source is set correctly")
         if not status.get("inputMuted"):
-            self._send_request("SetInputMute", {"inputName": "Audio Input Capture", "inputMuted": True})
+            self._send_request("SetInputMute", {"inputName": self._audio_capture_feed, "inputMuted": True})
 
 
 
