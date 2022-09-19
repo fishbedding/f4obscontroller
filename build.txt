@@ -1,0 +1,4 @@
+pyinstaller cli.py --onefile --p "F:\Documents\projects\f4obscontroller\venv\Lib\site-packages" --hiddenimport websockets.legacy --hiddenimport websockets.legacy.client --log-level=DEBUG
+
+import shutil
+shutil.copyfile('settings.txt', '{0}/settings.txt'.format(DISTPATH))

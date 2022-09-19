@@ -1,0 +1,2 @@
+[DEFAULT]
+server.port=18669
