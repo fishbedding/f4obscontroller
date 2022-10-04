@@ -246,7 +246,8 @@ class OBSConManager:
             except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError,
                     websockets.exceptions.ConnectionClosedOK):
                 print(
-                    f"The WebSocket connection was closed. Code {self._ws.close_code} | Reason: {self._ws.close_reason}")
+                    f"The WebSocket connection was closed. Code {self._ws.close_code} |"
+                    f" Reason: {self._ws.close_reason}")
                 self._identified = False
                 if self._ws.close_code == 4009:
                     raise AuthFailError("Unable to authenticate with the provided password")

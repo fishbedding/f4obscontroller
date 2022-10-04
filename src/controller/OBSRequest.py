@@ -78,7 +78,7 @@ class OBSRequest:
         print(f"Current programmed scene: {currentScene}")
 
         if currentScene.get("currentProgramSceneName") != self._scene_name:
-            print("Swapping to scene \"BMS\"")
+            print(f"Swapping to scene {self._scene_name}")
             self._send_request("SetCurrentProgramScene", {"sceneName": self._scene_name})
 
         recordingStatus = self._send_request("GetRecordStatus")
