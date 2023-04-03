@@ -18,7 +18,8 @@ A simple application that reads Falcon BMS shared memory to manage OBS recording
 2. Configure **server.password** If you had set a password in step 5 from above, otherwise either delete the line or leave it commented out (preceded by ";")  
 3. Configure **scene.name** This should be the Scene that you are using to record BMS.  
 4. Configure **audio.capture.feed** If you want f4obscontroller to handle Push-To-Talk microphone capture in OBS, set this to the name of the audio input capture source that you configured in OBS to record microphone input. Otherwise, you can delete this line
-
+### Running The Application
+For voice recording, the .exe must be run in admin mode
 ## References
 **[obs-websocket](https://github.com/obsproject/obs-websocket)** API reference  
   
